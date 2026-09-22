@@ -15,12 +15,86 @@ function renderAttendance(){let arr=db.attendance.filter(a=>a.date===localDate()
 function renderBoard(){sectionBoard.innerHTML=db.students.length?`<div class='boardGrid'>${db.students.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(s=>{let st=statusFor(s),cls=st==='Present'?'present':st==='Late'?'late':'unchecked';return `<div class='boardStudent ${cls}'><b>${esc(s.name)}</b><span>${st==='Present'?'🟢':st==='Late'?'🟡':'⚪'} ${st}</span></div>`}).join('')}</div>`:'<p class=muted>No students enrolled.</p>'}
 function renderReports(){reportList.innerHTML=db.attendance.length?`<table><tr><th>Date/Time</th><th>Student</th><th>Event</th><th>Late</th></tr>${db.attendance.slice().reverse().map(a=>{let s=db.students.find(x=>x.id===a.studentId);return `<tr><td>${fmt(a.at)}</td><td>${esc(s?.name)}</td><td>${a.type}</td><td>${a.late?'Yes':'No'}</td></tr>`}).join('')}</table>`:'<p class=muted>No records.</p>'}
 function recordCode(c){let type=scanType.value,s=db.students.find(x=>x.code.toLowerCase()===String(c).trim().toLowerCase());if(!s){scanResult.innerHTML='<p class=bad>Student code not found.</p>';return false}let now=new Date(),hm=now.toTimeString().slice(0,5),late=type==='IN'&&hm>(db.settings.late||'07:30'),last=db.attendance.filter(a=>a.studentId===s.id&&a.date===localDate()).at(-1);if(last?.type===type){scanResult.innerHTML=`<p class=bad>${esc(s.name)} already has a ${type} record as the latest event today.</p>`;return false}let a={id:(crypto.randomUUID?.()||Date.now().toString()),studentId:s.id,type,at:now.toISOString(),date:localDate(),late};db.attendance.push(a);let verb=type==='IN'?'entered the school':'left the school',msg=`${db.settings.school||'School'} Attendance: ${s.name} ${verb} at ${now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} on ${now.toLocaleDateString()}.`;db.notices.push({at:now.toISOString(),studentId:s.id,mobile:s.mobile,message:msg,status:'simulated'});save();scanResult.innerHTML=`<div class='result'><h3 class=ok>${type==='IN'?'✓ Time In':'✓ Time Out'} recorded</h3><p><b>${esc(s.name)}</b>${late?' • LATE':''}</p><p>${esc(msg)}</p><small>Parent SMS simulation → ${esc(s.mobile)}</small></div>`;scanCode.value='';render();return true}
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button,.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelector('#'+b.dataset.tab).classList.add('active');if(b.dataset.tab!=='scanner')stopCamera()});
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button,.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelector('#'+b.dataset.tab).classList.add('active');if(b.dataset.tab!=='scanner')stopCameraScan()});
 enrollForm.onsubmit=e=>{e.preventDefault();let f=Object.fromEntries(new FormData(e.target));if(db.students.some(s=>s.lrn===f.lrn))return alert('This LRN is already enrolled.');let s={...f,grade:'Grade 11',section:'St. Timothy',id:crypto.randomUUID?.()||Date.now().toString(),code:code(),createdAt:new Date().toISOString()};db.students.push(s);save();enrollResult.innerHTML=`<div class='result'><h3>Enrollment Successful</h3><p>${esc(s.name)} is enrolled in <b>Grade 11 – St. Timothy</b>.</p><div class='code'>${esc(s.code)}</div><div id='newQR' class='qrBox'></div><p><button id='openStudentQR'>Open / Print Student QR</button></p><small>This QR contains only the generated attendance code, not the student's LRN or personal information.</small></div>`;if(window.QRCode)new QRCode(document.getElementById('newQR'),{text:s.code,width:180,height:180});document.querySelector('#openStudentQR').onclick=()=>showQR(s.id);e.target.reset();render()};
 studentSearch.oninput=renderStudents;scanBtn.onclick=()=>recordCode(scanCode.value);refreshBoard.onclick=renderBoard;
 exportBtn.onclick=()=>{let rows=[['Date/Time','LRN','Student Code','Name','Grade','Section','Event','Late']];db.attendance.forEach(a=>{let s=db.students.find(x=>x.id===a.studentId)||{};rows.push([a.at,s.lrn,s.code,s.name,'Grade 11','St. Timothy',a.type,a.late?'Yes':'No'])});let csv=rows.map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n'),url=URL.createObjectURL(new Blob([csv],{type:'text/csv'})),x=document.createElement('a');x.href=url;x.download='St_Timothy_Attendance_Report.csv';x.click();URL.revokeObjectURL(url)};
 schoolName.value=db.settings.school||'';lateTime.value=db.settings.late||'07:30';saveSettings.onclick=()=>{db.settings.school=schoolName.value;db.settings.late=lateTime.value;save();alert('Settings saved.')};
-let stream=null,scanTimer=null;async function startCamera(){cameraNote.textContent='Opening camera…';if(!('BarcodeDetector'in window)){cameraNote.innerHTML='<span class="bad">This browser does not provide built-in QR detection. Try current Chrome/Android or use manual code entry.</span>';return}try{let detector=new BarcodeDetector({formats:['qr_code']});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});camera.srcObject=stream;await camera.play();cameraWrap.hidden=false;startCamera.hidden=true;stopCamera.hidden=false;cameraNote.textContent='Point the camera at a St. Timothy student QR code.';scanTimer=setInterval(async()=>{try{let codes=await detector.detect(camera);if(codes.length){let raw=codes[0].rawValue;if(recordCode(raw)){navigator.vibrate?.(120);await stopCamera();setTimeout(()=>startCamera.click(),700)}}}catch(e){}},450)}catch(e){cameraNote.innerHTML=`<span class='bad'>Camera could not start: ${esc(e.message)}. Check browser camera permission.</span>`}}
-async function stopCamera(){if(scanTimer){clearInterval(scanTimer);scanTimer=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraWrap.hidden=true;startCamera.hidden=false;stopCamera.hidden=true}
-startCamera.onclick=startCamera;stopCamera.onclick=stopCamera;
-let deferred;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;installBtn.hidden=false});installBtn.onclick=async()=>{if(deferred){deferred.prompt();await deferred.userChoice;deferred=null;installBtn.hidden=true}};if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=1.1');render();
+let stream=null,scanTimer=null,scanBusy=false;
+const startCameraBtn=document.getElementById('startCamera');
+const stopCameraBtn=document.getElementById('stopCamera');
+const cameraVideo=document.getElementById('camera');
+const cameraContainer=document.getElementById('cameraWrap');
+const cameraStatus=document.getElementById('cameraNote');
+const scanCanvas=document.createElement('canvas');
+const scanCtx=scanCanvas.getContext('2d',{willReadFrequently:true});
+let qrDetector=null;
+
+function loadJsQR(){
+  if(window.jsQR)return Promise.resolve(true);
+  return new Promise(resolve=>{
+    const existing=document.querySelector('script[data-jsqr]');
+    if(existing){existing.addEventListener('load',()=>resolve(!!window.jsQR),{once:true});existing.addEventListener('error',()=>resolve(false),{once:true});return}
+    const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';sc.async=true;sc.dataset.jsqr='1';sc.onload=()=>resolve(true);sc.onerror=()=>resolve(false);document.head.appendChild(sc)
+  })
+}
+
+async function detectQR(){
+  if(scanBusy||!stream||cameraVideo.readyState<2)return;
+  scanBusy=true;
+  try{
+    let raw='';
+    if(qrDetector){
+      const codes=await qrDetector.detect(cameraVideo);
+      if(codes?.length)raw=codes[0].rawValue||'';
+    }else if(window.jsQR){
+      const w=cameraVideo.videoWidth,h=cameraVideo.videoHeight;
+      if(w&&h){scanCanvas.width=w;scanCanvas.height=h;scanCtx.drawImage(cameraVideo,0,0,w,h);const img=scanCtx.getImageData(0,0,w,h);const found=window.jsQR(img.data,w,h,{inversionAttempts:'dontInvert'});if(found)raw=found.data||''}
+    }
+    if(raw&&recordCode(raw)){
+      navigator.vibrate?.(120);
+      cameraStatus.innerHTML='<span class="ok">✓ QR scanned successfully. Ready for the next student.</span>';
+      await stopCameraScan();
+      setTimeout(()=>startCameraScan(),900);
+    }
+  }catch(e){}finally{scanBusy=false}
+}
+
+async function startCameraScan(){
+  if(stream)return;
+  cameraStatus.textContent='Requesting camera permission…';
+  if(!window.isSecureContext){cameraStatus.innerHTML='<span class="bad">Camera access requires HTTPS. Open the deployed GitHub Pages site, not a downloaded HTML file.</span>';return}
+  if(!navigator.mediaDevices?.getUserMedia){cameraStatus.innerHTML='<span class="bad">Camera access is not supported in this browser. Try Chrome on Android or Safari on iPhone.</span>';return}
+  startCameraBtn.disabled=true;
+  try{
+    if('BarcodeDetector' in window){try{qrDetector=new BarcodeDetector({formats:['qr_code']})}catch(e){qrDetector=null}}
+    if(!qrDetector)await loadJsQR();
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+    cameraVideo.srcObject=stream;
+    await cameraVideo.play();
+    cameraContainer.hidden=false;
+    startCameraBtn.hidden=true;
+    stopCameraBtn.hidden=false;
+    cameraStatus.textContent=(qrDetector||window.jsQR)?'Camera ready. Point it at a St. Timothy student QR code.':'Camera opened, but automatic QR detection could not load. Use the manual student code below.';
+    scanTimer=setInterval(detectQR,300);
+  }catch(e){
+    let msg=e?.message||String(e);
+    if(e?.name==='NotAllowedError')msg='Camera permission was denied. Allow Camera permission for this site in your browser settings, then tap Start Camera Scanner again.';
+    else if(e?.name==='NotFoundError')msg='No usable camera was found on this device.';
+    else if(e?.name==='NotReadableError')msg='The camera is being used by another app. Close the other camera app and try again.';
+    cameraStatus.innerHTML=`<span class='bad'>${esc(msg)}</span>`;
+  }finally{startCameraBtn.disabled=false}
+}
+
+async function stopCameraScan(){
+  if(scanTimer){clearInterval(scanTimer);scanTimer=null}
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  cameraVideo.srcObject=null;
+  cameraContainer.hidden=true;
+  startCameraBtn.hidden=false;
+  stopCameraBtn.hidden=true;
+}
+
+startCameraBtn.addEventListener('click',startCameraScan);
+stopCameraBtn.addEventListener('click',stopCameraScan);
+let deferred;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;installBtn.hidden=false});installBtn.onclick=async()=>{if(deferred){deferred.prompt();await deferred.userChoice;deferred=null;installBtn.hidden=true}};if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=1.2');render();
