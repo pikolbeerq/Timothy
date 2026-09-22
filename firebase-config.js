@@ -12,11 +12,14 @@
   database credential or open database rules.
 */
 window.CCCS_FIREBASE_CONFIG = {
-  enabled: false,
-  apiKey: "",
-  authDomain: "",
-  databaseURL: "",
-  projectId: ""
+  enabled: true,
+  apiKey: "AIzaSyAwyWKoEqTHwkv9NMkcjNO2Bu_4D_5frLc",
+  authDomain: "cccs-st-timothy-attendance.firebaseapp.com",
+  databaseURL: "https://cccs-st-timothy-attendance-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cccs-st-timothy-attendance",
+  storageBucket: "cccs-st-timothy-attendance.firebasestorage.app",
+  messagingSenderId: "115515283454",
+  appId: "1:115515283454:web:4dab02c44998e1fe0052af"
 };
 
 window.CCCS_FIREBASE = (()=>{
@@ -34,6 +37,11 @@ window.CCCS_FIREBASE = (()=>{
   }
   const get=p=>request(p);
   const set=(p,v)=>request(p,'PUT',v);
-  function listen(path,cb){let stopped=false,last='';async function poll(){if(stopped)return;try{const v=await get(path),raw=JSON.stringify(v);if(raw!==last){last=raw;cb(v)}}catch(e){}setTimeout(poll,2500)}poll();return()=>{stopped=true}}
-  return {enabled:!!c.enabled,init,get,set,listen};
+  async function publicGet(path){
+    const url=`${c.databaseURL.replace(/\/$/,'')}/${clean(path)}.json`;
+    const r=await fetch(url); if(!r.ok)throw new Error('Public database read failed'); return r.json();
+  }
+  function listen(path,cb){let stopped=false,last='';async function poll(){if(stopped)return;try{const v=await get(path),raw=JSON.stringify(v);if(raw!==last){last=raw;cb(v)}}catch(e){}setTimeout(poll,1800)}poll();return()=>{stopped=true}}
+  function publicListen(path,cb){let stopped=false,last='';async function poll(){if(stopped)return;try{const v=await publicGet(path),raw=JSON.stringify(v);if(raw!==last){last=raw;cb(v)}}catch(e){}setTimeout(poll,1800)}poll();return()=>{stopped=true}}
+  return {enabled:!!c.enabled,init,get,set,listen,publicGet,publicListen};
 })();

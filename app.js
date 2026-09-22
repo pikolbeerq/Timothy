@@ -1,5 +1,5 @@
-const KEY='cccs_sttimothy_attendance_v13';
-const OLD_KEYS=['cccs_sttimothy_attendance_v11'];
+const KEY='cccs_sttimothy_attendance_v14';
+const OLD_KEYS=['cccs_sttimothy_attendance_v13','cccs_sttimothy_attendance_v11'];
 let seed=localStorage.getItem(KEY)||OLD_KEYS.map(k=>localStorage.getItem(k)).find(Boolean);
 let db=JSON.parse(seed||'{"students":[],"attendance":[],"notices":[],"settings":{"school":"Cordova Catholic Cooperative School","late":"07:30"}}');
 const save=()=>{localStorage.setItem(KEY,JSON.stringify(db)); queueCloudSave()};
@@ -100,32 +100,72 @@ async function stopCameraScan(){
 startCameraBtn.addEventListener('click',startCameraScan);
 stopCameraBtn.addEventListener('click',stopCameraScan);
 
-// ---- Optional Firebase Realtime Database sync (V1.3) ----
+// ---- Firebase Realtime Database sync (V1.4) ----
 let cloudReady=false, cloudTimer=null, cloudApplying=false;
+const STUDENT_VIEW_MODE=location.hash==='#student-view';
 const cloudStatus=()=>document.getElementById('cloudStatus');
-function publicCloudState(){return {students:db.students,attendance:db.attendance,settings:db.settings,updatedAt:new Date().toISOString()}}
+function safeStudentBoard(){
+  return {
+    classInfo:{grade:'Grade 11',section:'St. Timothy',room:'307',adviser:'Niño G. Degamo'},
+    students:db.students.map(s=>({id:s.id,name:s.name,status:statusFor(s)})),
+    updatedAt:new Date().toISOString()
+  };
+}
 function queueCloudSave(){
-  if(!cloudReady||cloudApplying)return; clearTimeout(cloudTimer); cloudTimer=setTimeout(pushCloud,250);
+  if(!cloudReady||cloudApplying||STUDENT_VIEW_MODE)return;
+  clearTimeout(cloudTimer); cloudTimer=setTimeout(pushCloud,250);
 }
 async function pushCloud(){
-  try{await window.CCCS_FIREBASE.set('sections/st-timothy',publicCloudState()); const el=cloudStatus();if(el)el.textContent='Live sync connected';}
-  catch(e){const el=cloudStatus();if(el)el.textContent='Live sync error';}
+  try{
+    await Promise.all([
+      window.CCCS_FIREBASE.set('private/st-timothy/students',db.students),
+      window.CCCS_FIREBASE.set('private/st-timothy/settings',db.settings),
+      window.CCCS_FIREBASE.set('attendance/st-timothy',db.attendance),
+      window.CCCS_FIREBASE.set('studentView/st-timothy',safeStudentBoard())
+    ]);
+    const el=cloudStatus();if(el)el.textContent='● Live sync connected';
+  }catch(e){const el=cloudStatus();if(el)el.textContent='Live sync error';console.error(e)}
+}
+function renderPublicBoard(remote){
+  const list=Array.isArray(remote?.students)?remote.students:[];
+  sectionBoard.innerHTML=list.length?`<div class='boardGrid'>${list.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(s=>{let st=s.status||'Not Checked In',cls=st==='Present'?'present':st==='Late'?'late':st==='Excused'?'excused':'unchecked';return `<div class='boardStudent ${cls}'><b>${esc(s.name)}</b><span>${st==='Present'?'🟢':st==='Late'?'🟡':st==='Excused'?'🔵':'⚪'} ${esc(st)}</span></div>`}).join('')}</div>`:'<p class=muted>No attendance board available yet.</p>';
+  const el=cloudStatus();if(el)el.textContent='● Live section board';
+}
+async function initStudentViewer(){
+  document.querySelectorAll('nav button').forEach(b=>b.style.display='none');
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelector('#studentview').classList.add('active');
+  const el=cloudStatus();if(el)el.textContent='Connecting to live board…';
+  shareStudentView?.remove();
+  refreshBoard.onclick=async()=>{try{renderPublicBoard(await window.CCCS_FIREBASE.publicGet('studentView/st-timothy'))}catch(e){}};
+  window.CCCS_FIREBASE.publicListen('studentView/st-timothy',renderPublicBoard);
 }
 async function initCloud(){
   const el=cloudStatus();
-  if(!window.CCCS_FIREBASE?.enabled){if(el)el.textContent='Local mode — add Firebase config for live sharing';return}
+  if(!window.CCCS_FIREBASE?.enabled){if(el)el.textContent='Local mode';return}
+  if(STUDENT_VIEW_MODE){await initStudentViewer();return}
   try{
-    await window.CCCS_FIREBASE.init(); cloudReady=true; if(el)el.textContent='Live sync connected';
-    window.CCCS_FIREBASE.listen('sections/st-timothy',remote=>{
-      if(!remote)return; cloudApplying=true;
-      db.students=Array.isArray(remote.students)?remote.students:db.students;
-      db.attendance=Array.isArray(remote.attendance)?remote.attendance:db.attendance;
-      db.settings={...db.settings,...(remote.settings||{})};
-      localStorage.setItem(KEY,JSON.stringify(db)); cloudApplying=false; render();
-    });
-    const remote=await window.CCCS_FIREBASE.get('sections/st-timothy');
-    if(remote){cloudApplying=true;db.students=Array.isArray(remote.students)?remote.students:db.students;db.attendance=Array.isArray(remote.attendance)?remote.attendance:db.attendance;db.settings={...db.settings,...(remote.settings||{})};localStorage.setItem(KEY,JSON.stringify(db));cloudApplying=false}
-    else if(db.students.length||db.attendance.length) await pushCloud();
-  }catch(e){cloudReady=false;if(el)el.textContent='Local mode — Firebase connection failed'}
+    await window.CCCS_FIREBASE.init(); cloudReady=true; if(el)el.textContent='● Live sync connected';
+    const [students,settings,attendance]=await Promise.all([
+      window.CCCS_FIREBASE.get('private/st-timothy/students'),
+      window.CCCS_FIREBASE.get('private/st-timothy/settings'),
+      window.CCCS_FIREBASE.get('attendance/st-timothy')
+    ]);
+    cloudApplying=true;
+    if(Array.isArray(students))db.students=students;
+    if(settings)db.settings={...db.settings,...settings};
+    if(Array.isArray(attendance))db.attendance=attendance;
+    localStorage.setItem(KEY,JSON.stringify(db));cloudApplying=false;render();
+    window.CCCS_FIREBASE.listen('private/st-timothy/students',v=>{if(!Array.isArray(v))return;cloudApplying=true;db.students=v;localStorage.setItem(KEY,JSON.stringify(db));cloudApplying=false;render()});
+    window.CCCS_FIREBASE.listen('attendance/st-timothy',v=>{if(!Array.isArray(v))return;cloudApplying=true;db.attendance=v;localStorage.setItem(KEY,JSON.stringify(db));cloudApplying=false;render()});
+    if(!students && db.students.length)await pushCloud(); else await window.CCCS_FIREBASE.set('studentView/st-timothy',safeStudentBoard());
+  }catch(e){cloudReady=false;if(el)el.textContent='Firebase connection failed';console.error(e)}
 }
-let deferred;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;installBtn.hidden=false});installBtn.onclick=async()=>{if(deferred){deferred.prompt();await deferred.userChoice;deferred=null;installBtn.hidden=true}};if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=1.3');initCloud().finally(render);
+const shareStudentView=document.getElementById('shareStudentView');
+if(shareStudentView)shareStudentView.onclick=async()=>{
+  const url=location.href.split('#')[0]+'#student-view';
+  try{if(navigator.share)await navigator.share({title:'St. Timothy Live Attendance',text:'Grade 11 – St. Timothy live attendance board',url});else{await navigator.clipboard.writeText(url);alert('Student View link copied.')}}catch(e){}
+};
+let deferred;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;installBtn.hidden=false});installBtn.onclick=async()=>{if(deferred){deferred.prompt();await deferred.userChoice;deferred=null;installBtn.hidden=true}};
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=1.4');
+initCloud().finally(()=>{if(!STUDENT_VIEW_MODE)render()});

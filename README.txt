@@ -1,24 +1,19 @@
-CCCS Grade 11 – St. Timothy Attendance Prototype V1.2
+CCCS Grade 11 – St. Timothy Attendance System V1.4 — Firebase Live
+
+Connected to the CCCS-St-Timothy-Attendance Firebase project.
 
 Features:
-- Enrollment limited to Grade 11 – St. Timothy
-- Generated attendance code and QR per student
-- Phone rear-camera QR scanner (browser BarcodeDetector support required)
-- Manual code entry fallback
-- TIME IN / TIME OUT and late detection
-- Simulated parent SMS notification
-- St. Timothy-only student list
-- View-only class attendance board showing Present/Late/Not Checked In
-- CSV attendance export
-- Installable PWA
+- Grade 11 – St. Timothy only
+- Room 307
+- Adviser: Niño G. Degamo
+- Student enrollment and QR generation
+- Phone QR scanner for TIME IN / TIME OUT
+- Firebase Realtime Database sync across devices
+- Public view-only live attendance board at #student-view
+- Public board contains only student name + attendance status
+- Private enrollment and detailed attendance use authenticated Firebase paths
 
-IMPORTANT:
-This prototype stores data only in the browser (localStorage). It is NOT yet a shared online database. Student View on another phone will not receive live attendance until a secured backend is added. Do not use real student PII for production yet. QR codes contain only the generated attendance code, not LRN or personal details.
+IMPORTANT SECURITY NOTE:
+This prototype uses Anonymous Authentication for the adviser interface. Before entering real student personal information, replace anonymous staff access with a true adviser/admin login and tighten Firebase rules so only the adviser account can read/write private and attendance paths.
 
-For GitHub Pages: upload the files in this ZIP to a repository and enable Pages. Camera access requires HTTPS; GitHub Pages provides HTTPS.
-
-V1.2 scanner fix:
-- Fixed Start Camera button/function naming collision that prevented the tap action.
-- Camera now opens even when native BarcodeDetector is unavailable.
-- Added jsQR fallback for broader Android/iPhone browser QR detection.
-- Clear camera permission/error messages and rear-camera preference.
+GitHub Pages: upload all files in this folder.
